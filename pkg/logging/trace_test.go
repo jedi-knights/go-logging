@@ -1,89 +1,84 @@
-package logging
+package logging_test
 
 import (
 	"context"
+	"regexp"
 	"testing"
+
+	"github.com/jedi-knights/go-logging/pkg/logging"
 )
 
-func TestNewTraceID(t *testing.T) {
-	id1 := NewTraceID()
-	id2 := NewTraceID()
+var uuidV4Pattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
-	if id1 == "" {
-		t.Error("TraceID should not be empty")
-	}
-
-	if id1 == id2 {
-		t.Error("TraceIDs should be unique")
+func TestWithTraceID_StoresAndRetrieves(t *testing.T) {
+	t.Parallel()
+	ctx := logging.WithTraceID(context.Background(), "trace-abc")
+	if got := logging.TraceIDFromContext(ctx); got != "trace-abc" {
+		t.Errorf("got %q, want %q", got, "trace-abc")
 	}
 }
 
-func TestWithTraceID(t *testing.T) {
-	ctx := context.Background()
-	traceID := "test-trace-id"
-
-	ctx = WithTraceID(ctx, traceID)
-
-	retrievedID, ok := GetTraceID(ctx)
-	if !ok {
-		t.Error("TraceID should be present in context")
-	}
-
-	if retrievedID != traceID {
-		t.Errorf("Expected traceID %s, got %s", traceID, retrievedID)
+func TestTraceIDFromContext_EmptyWhenAbsent(t *testing.T) {
+	t.Parallel()
+	if got := logging.TraceIDFromContext(context.Background()); got != "" {
+		t.Errorf("got %q, want empty", got)
 	}
 }
 
-func TestWithRequestID(t *testing.T) {
-	ctx := context.Background()
-	requestID := "test-request-id"
-
-	ctx = WithRequestID(ctx, requestID)
-
-	retrievedID, ok := GetRequestID(ctx)
-	if !ok {
-		t.Error("RequestID should be present in context")
-	}
-
-	if retrievedID != requestID {
-		t.Errorf("Expected requestID %s, got %s", requestID, retrievedID)
+func TestWithRequestID_StoresAndRetrieves(t *testing.T) {
+	t.Parallel()
+	ctx := logging.WithRequestID(context.Background(), "req-xyz")
+	if got := logging.RequestIDFromContext(ctx); got != "req-xyz" {
+		t.Errorf("got %q, want %q", got, "req-xyz")
 	}
 }
 
-func TestWithCorrelationID(t *testing.T) {
-	ctx := context.Background()
-	correlationID := "test-correlation-id"
-
-	ctx = WithCorrelationID(ctx, correlationID)
-
-	retrievedID, ok := GetCorrelationID(ctx)
-	if !ok {
-		t.Error("CorrelationID should be present in context")
-	}
-
-	if retrievedID != correlationID {
-		t.Errorf("Expected correlationID %s, got %s", correlationID, retrievedID)
+func TestRequestIDFromContext_EmptyWhenAbsent(t *testing.T) {
+	t.Parallel()
+	if got := logging.RequestIDFromContext(context.Background()); got != "" {
+		t.Errorf("got %q, want empty", got)
 	}
 }
 
-func TestNewContextWithTrace(t *testing.T) {
-	ctx := NewContextWithTrace()
-
-	traceID, ok := GetTraceID(ctx)
-	if !ok {
-		t.Error("TraceID should be present in context")
-	}
-
-	if traceID == "" {
-		t.Error("TraceID should not be empty")
+func TestWithCorrelationID_StoresAndRetrieves(t *testing.T) {
+	t.Parallel()
+	ctx := logging.WithCorrelationID(context.Background(), "corr-42")
+	if got := logging.CorrelationIDFromContext(ctx); got != "corr-42" {
+		t.Errorf("got %q, want %q", got, "corr-42")
 	}
 }
 
-func TestGetTraceID_NotPresent(t *testing.T) {
-	ctx := context.Background()
+func TestCorrelationIDFromContext_EmptyWhenAbsent(t *testing.T) {
+	t.Parallel()
+	if got := logging.CorrelationIDFromContext(context.Background()); got != "" {
+		t.Errorf("got %q, want empty", got)
+	}
+}
 
-	_, ok := GetTraceID(ctx)
-	if ok {
-		t.Error("TraceID should not be present in empty context")
+func TestNewTraceID_MatchesUUIDv4Format(t *testing.T) {
+	t.Parallel()
+	id := logging.NewTraceID()
+	if id == "" {
+		t.Fatal("NewTraceID returned empty string")
+	}
+	if !uuidV4Pattern.MatchString(id) {
+		t.Errorf("NewTraceID %q does not match UUID v4 format", id)
+	}
+}
+
+func TestNewTraceID_UniquePerCall(t *testing.T) {
+	t.Parallel()
+	a := logging.NewTraceID()
+	b := logging.NewTraceID()
+	if a == b {
+		t.Errorf("expected different IDs across calls, both = %q", a)
+	}
+}
+
+func TestNewContextWithTrace_HasNonEmptyTraceID(t *testing.T) {
+	t.Parallel()
+	ctx := logging.NewContextWithTrace()
+	if logging.TraceIDFromContext(ctx) == "" {
+		t.Error("expected NewContextWithTrace to set a trace ID")
 	}
 }

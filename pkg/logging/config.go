@@ -3,165 +3,101 @@ package logging
 import (
 	"io"
 	"log/slog"
-	"regexp"
+	"os"
+	"strings"
 )
 
-type OutputFormat int
-
-const (
-	CommonLogFormat OutputFormat = iota
-	TextFormat
-	JSONFormat
-)
-
-// Config provides backward compatibility with the old configuration system.
-// Deprecated: Use LoggerConfig for new code.
+// Config configures a Logger created via New.
+//
+// All fields are optional; the zero value is a valid info-level text logger
+// writing to os.Stdout.
 type Config struct {
-	Level          Level
-	Output         io.Writer
-	Format         OutputFormat
-	IncludeFile    bool
-	IncludeTime    bool
-	UseShortFile   bool
-	RedactPatterns []*regexp.Regexp
-	StaticFields   map[string]interface{}
-	Handler        slog.Handler
-	UseSlog        bool
+	// Level is the minimum log level: "debug" | "info" | "warn" | "error".
+	// Empty defaults to "info". Unknown values default to "info" and emit a
+	// warning at construction time.
+	Level string
+
+	// Format is the output format: "json" | "text". Empty defaults to "text".
+	Format string
+
+	// Output is the destination writer. nil defaults to os.Stdout.
+	Output io.Writer
+
+	// ServiceName is attached to every record as the "service_name" attribute.
+	ServiceName string
+
+	// Environment is attached to every record as the "environment" attribute.
+	Environment string
+
+	// StaticFields are attached to every record.
+	StaticFields map[string]any
+
+	// Handler optionally overrides the slog.Handler. When set, Format and
+	// Output are ignored — the provided handler is used directly. ServiceName,
+	// Environment, and StaticFields still apply via With on the resulting logger.
+	Handler slog.Handler
 }
 
-// ToLoggerConfig converts old Config to new LoggerConfig structure.
-func (c *Config) ToLoggerConfig() *LoggerConfig {
-	return &LoggerConfig{
-		Core: &CoreConfig{
-			Level:        c.Level,
-			StaticFields: c.StaticFields,
-		},
-		Formatter: &FormatterConfig{
-			Format:         c.Format,
-			IncludeFile:    c.IncludeFile,
-			IncludeTime:    c.IncludeTime,
-			UseShortFile:   c.UseShortFile,
-			RedactPatterns: c.RedactPatterns,
-		},
-		Output: &OutputConfig{
-			Writer: c.Output,
-		},
-		Handler: c.Handler,
-		UseSlog: c.UseSlog,
+// New constructs a Logger from cfg.
+func New(cfg Config) Logger {
+	level, levelKnown := ParseLevel(cfg.Level)
+
+	handler := cfg.Handler
+	if handler == nil {
+		out := cfg.Output
+		if out == nil {
+			out = os.Stdout
+		}
+		opts := &slog.HandlerOptions{Level: level}
+		if strings.EqualFold(cfg.Format, "json") {
+			handler = slog.NewJSONHandler(out, opts)
+		} else {
+			handler = slog.NewTextHandler(out, opts)
+		}
 	}
-}
 
-type ConfigBuilder struct {
-	builder *LoggerConfigBuilder
-}
+	inner := slog.New(handler)
 
-func NewConfig() *ConfigBuilder {
-	return &ConfigBuilder{
-		builder: NewLoggerConfig(),
+	var attrs []any
+	if cfg.ServiceName != "" {
+		attrs = append(attrs, slog.String("service_name", cfg.ServiceName))
 	}
-}
-
-func (b *ConfigBuilder) WithLevel(level Level) *ConfigBuilder {
-	b.builder.WithLevel(level)
-	return b
-}
-
-func (b *ConfigBuilder) WithLevelString(level string) *ConfigBuilder {
-	b.builder.WithLevelString(level)
-	return b
-}
-
-func (b *ConfigBuilder) WithOutput(w io.Writer) *ConfigBuilder {
-	b.builder.WithWriter(w)
-	return b
-}
-
-func (b *ConfigBuilder) WithFormat(format OutputFormat) *ConfigBuilder {
-	b.builder.WithFormat(format)
-	return b
-}
-
-func (b *ConfigBuilder) WithJSONFormat() *ConfigBuilder {
-	b.builder.WithJSONFormat()
-	return b
-}
-
-func (b *ConfigBuilder) WithTextFormat() *ConfigBuilder {
-	b.builder.WithTextFormat()
-	return b
-}
-
-func (b *ConfigBuilder) WithCommonLogFormat() *ConfigBuilder {
-	b.builder.WithCommonLogFormat()
-	return b
-}
-
-func (b *ConfigBuilder) IncludeFile(include bool) *ConfigBuilder {
-	b.builder.config.Formatter.IncludeFile = include
-	return b
-}
-
-func (b *ConfigBuilder) IncludeTime(include bool) *ConfigBuilder {
-	b.builder.config.Formatter.IncludeTime = include
-	return b
-}
-
-func (b *ConfigBuilder) UseShortFile(useShort bool) *ConfigBuilder {
-	b.builder.config.Formatter.UseShortFile = useShort
-	return b
-}
-
-func (b *ConfigBuilder) AddRedactPattern(pattern string) *ConfigBuilder {
-	if re, err := regexp.Compile(pattern); err == nil {
-		b.builder.config.Formatter.RedactPatterns = append(b.builder.config.Formatter.RedactPatterns, re)
+	if cfg.Environment != "" {
+		attrs = append(attrs, slog.String("environment", cfg.Environment))
 	}
-	return b
-}
-
-func (b *ConfigBuilder) AddRedactRegex(re *regexp.Regexp) *ConfigBuilder {
-	b.builder.config.Formatter.RedactPatterns = append(b.builder.config.Formatter.RedactPatterns, re)
-	return b
-}
-
-func (b *ConfigBuilder) WithStaticField(key string, value interface{}) *ConfigBuilder {
-	b.builder.config.Core.StaticFields[key] = value
-	return b
-}
-
-func (b *ConfigBuilder) WithStaticFields(fields map[string]interface{}) *ConfigBuilder {
-	for k, v := range fields {
-		b.builder.config.Core.StaticFields[k] = v
+	for k, v := range cfg.StaticFields {
+		attrs = append(attrs, slog.Any(k, v))
 	}
-	return b
+	if len(attrs) > 0 {
+		inner = inner.With(attrs...)
+	}
+
+	l := &slogLogger{inner: inner}
+
+	if !levelKnown && cfg.Level != "" {
+		l.Warn("unknown log level, defaulting to info", "level", cfg.Level)
+	}
+
+	return l
 }
 
-func (b *ConfigBuilder) WithHandler(handler slog.Handler) *ConfigBuilder {
-	b.builder.WithHandler(handler)
-	return b
-}
+// Default is a convenience equivalent to New(Config{}).
+func Default() Logger { return New(Config{}) }
 
-func (b *ConfigBuilder) UseSlog(use bool) *ConfigBuilder {
-	b.builder.UseSlog(use)
-	return b
-}
-
-func (b *ConfigBuilder) FromEnvironment() *ConfigBuilder {
-	b.builder.FromEnvironment()
-	return b
-}
-
-func (b *ConfigBuilder) Build() *Config {
-	loggerConfig := b.builder.Build()
-	return &Config{
-		Level:          loggerConfig.Core.Level,
-		Output:         loggerConfig.Output.Writer,
-		Format:         loggerConfig.Formatter.Format,
-		IncludeFile:    loggerConfig.Formatter.IncludeFile,
-		IncludeTime:    loggerConfig.Formatter.IncludeTime,
-		UseShortFile:   loggerConfig.Formatter.UseShortFile,
-		RedactPatterns: loggerConfig.Formatter.RedactPatterns,
-		StaticFields:   loggerConfig.Core.StaticFields,
-		Handler:        loggerConfig.Handler,
-		UseSlog:        loggerConfig.UseSlog,
+// ParseLevel converts a level string to slog.Level. Comparison is case-insensitive.
+// Returns (level, true) for known values ("debug", "info", "warn", "warning", "error", "").
+// Returns (slog.LevelInfo, false) for unknown values.
+func ParseLevel(s string) (slog.Level, bool) {
+	switch strings.ToLower(s) {
+	case "debug":
+		return slog.LevelDebug, true
+	case "info", "":
+		return slog.LevelInfo, true
+	case "warn", "warning":
+		return slog.LevelWarn, true
+	case "error":
+		return slog.LevelError, true
+	default:
+		return slog.LevelInfo, false
 	}
 }

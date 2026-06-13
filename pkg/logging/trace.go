@@ -1,84 +1,74 @@
-// Package logging provides structured logging with request tracing support.
 package logging
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 )
 
-type contextKey string
+// WithTraceID returns a derived context carrying the given trace ID.
+func WithTraceID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, traceIDKey, id)
+}
 
-const (
-	// TraceIDKey is the context key for trace identifiers that follow requests through the system.
-	TraceIDKey contextKey = "trace_id"
-	// RequestIDKey is the context key for unique request identifiers.
-	RequestIDKey contextKey = "request_id"
-	// CorrelationKey is the context key for correlation identifiers linking related requests.
-	CorrelationKey contextKey = "correlation_id"
-)
+// TraceIDFromContext returns the trace ID stored in ctx, or "" when absent.
+func TraceIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(traceIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
 
-// NewTraceID generates a new unique trace identifier using the configured UUID generator.
-// Use this to create trace IDs for tracking requests through your system.
-//
-// Example:
-//
-//	traceID := logging.NewTraceID()
-//	ctx := logging.WithTraceID(context.Background(), traceID)
+// WithRequestID returns a derived context carrying the given request ID.
+func WithRequestID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, requestIDKey, id)
+}
+
+// RequestIDFromContext returns the request ID stored in ctx, or "" when absent.
+func RequestIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(requestIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// WithCorrelationID returns a derived context carrying the given correlation ID.
+func WithCorrelationID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, correlationIDKey, id)
+}
+
+// CorrelationIDFromContext returns the correlation ID stored in ctx, or "" when absent.
+func CorrelationIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(correlationIDKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// NewTraceID returns a fresh RFC 4122 v4 UUID, suitable for use as a trace ID.
 func NewTraceID() string {
-	return defaultGenerator.Generate()
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// crypto/rand on supported platforms does not fail; the defensive
+		// branch returns an empty string so callers can detect failure.
+		return ""
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
+	s := hex.EncodeToString(b[:])
+	return s[0:8] + "-" + s[8:12] + "-" + s[12:16] + "-" + s[16:20] + "-" + s[20:32]
 }
 
-// WithTraceID returns a new context with the trace ID attached.
-// The trace ID can be retrieved later with GetTraceID.
-//
-// Example:
-//
-//	ctx := logging.WithTraceID(r.Context(), "trace-123")
-//	logger.InfoContext(ctx, "Processing request")
-func WithTraceID(ctx context.Context, traceID string) context.Context {
-	return context.WithValue(ctx, TraceIDKey, traceID)
-}
-
-// GetTraceID retrieves the trace ID from the context.
-// Returns the trace ID and true if present, empty string and false otherwise.
-func GetTraceID(ctx context.Context) (string, bool) {
-	traceID, ok := ctx.Value(TraceIDKey).(string)
-	return traceID, ok
-}
-
-// WithRequestID returns a new context with the request ID attached.
-// The request ID can be retrieved later with GetRequestID.
-func WithRequestID(ctx context.Context, requestID string) context.Context {
-	return context.WithValue(ctx, RequestIDKey, requestID)
-}
-
-// GetRequestID retrieves the request ID from the context.
-// Returns the request ID and true if present, empty string and false otherwise.
-func GetRequestID(ctx context.Context) (string, bool) {
-	requestID, ok := ctx.Value(RequestIDKey).(string)
-	return requestID, ok
-}
-
-// WithCorrelationID returns a new context with the correlation ID attached.
-// The correlation ID can be retrieved later with GetCorrelationID.
-// Use correlation IDs to link related requests across different services.
-func WithCorrelationID(ctx context.Context, correlationID string) context.Context {
-	return context.WithValue(ctx, CorrelationKey, correlationID)
-}
-
-// GetCorrelationID retrieves the correlation ID from the context.
-// Returns the correlation ID and true if present, empty string and false otherwise.
-func GetCorrelationID(ctx context.Context) (string, bool) {
-	correlationID, ok := ctx.Value(CorrelationKey).(string)
-	return correlationID, ok
-}
-
-// NewContextWithTrace creates a new context with an automatically generated trace ID.
-// This is a convenience function equivalent to WithTraceID(context.Background(), NewTraceID()).
-//
-// Example:
-//
-//	ctx := logging.NewContextWithTrace()
-//	logger.InfoContext(ctx, "Starting new operation")
+// NewContextWithTrace returns a derived context.Background carrying a fresh trace ID.
 func NewContextWithTrace() context.Context {
 	return WithTraceID(context.Background(), NewTraceID())
 }

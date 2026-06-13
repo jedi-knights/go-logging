@@ -7,98 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-06-13
+
+v2 is a near-complete rewrite. The public API was reduced from ~150 exported
+symbols to ~25, the production code from ~11,800 lines to ~330. The library now
+sits as a thin layer over `log/slog` with no external dependencies. See
+[README.md](README.md) for the canonical usage.
+
+### Breaking
+
+- **Module path renamed**: `github.com/ocrosby/go-logging` → `github.com/jedi-knights/go-logging`.
+- **Go version**: minimum bumped from 1.24 to 1.26.
+- **`Logger` interface reduced to 10 methods**: `Debug`/`Info`/`Warn`/`Error` plus the `*Context` variants, `With(args ...any) Logger`, and `Enabled(ctx, slog.Level) bool`. Removed: `Trace`, `Critical`, `Log`, `LogContext`, `TraceContext`, `CriticalContext`, `WithField`, `WithFields`, `Fluent`, `IsLevelEnabled`, `SetLevel`, `GetLevel`.
+- **`Config` collapsed to a flat struct**: `Level`, `Format`, `Output`, `ServiceName`, `Environment`, `StaticFields`, `Handler`. The deprecated `Config`, the nested `LoggerConfig`/`CoreConfig`/`FormatterConfig`/`OutputConfig`, and all their builders are removed.
+- **`New` is the only constructor**. `Default()` is the zero-config shortcut. Removed: `NewWithLoggerConfig`, `NewFromEnvironment`, `NewFromEnvSimple`, `NewSimple`, `NewEasyJSON`, `NewEasyJSONWithLevel`, `NewEasyBuilder`, `NewJSONLogger`, `NewTextLogger`, `NewSlogJSONLogger`, `NewSlogTextLogger`, `NewSlogLogger`, `NewStandardLogger`, `NewUnifiedLogger`, `NewWithLevel`, `NewWithLevelString`, `NewWithHandler`, `NewFromYAMLFile`, `NewFromYAMLEnv`, `LoadFromYAML`, `LoadFromYAMLData`, `LoadFromYAMLString`.
+- **Trace ID retrieval renamed**: `GetTraceID(ctx) (string, bool)` → `TraceIDFromContext(ctx) string` (returns `""` when absent). Same renames for request and correlation IDs.
+- **Removed package-level surface**: all handler builders (`AsyncHandler`, `BufferedHandler`, `ConditionalHandler`, `MiddlewareHandler`, `MultiHandler`, `RotatingHandler`, `HandlerBuilder`, `HandlerCompositor`, `HandlerRegistry`), all middleware (`CallerMiddleware`, `ContextExtractorMiddleware`, `LevelFilterMiddleware`, `LoggingMiddleware`, `MetricsMiddleware`, `RedactionMiddleware`, `SamplingMiddleware`, `StaticFieldsMiddleware`, `TimestampMiddleware`), all formatters (`CommonLogFormatter`, `ConsoleFormatter`, `JSONFormatter`, `TextFormatter`), all output types (`FileOutput`, `BufferedOutput`, `MultiOutput`, `WriterOutput`, `RotatingFileOutput`, `AsyncOutput`), the async-worker primitives, the redaction package (`RedactorChain`, `RegexRedactor`, `RedactedURL`, `RedactAPIKeys`), YAML config (`LoadFromYAML*`, `SaveToYAML`), Wire DI providers (`ProvideConfig`, `ProvideLogger`, etc.), HTTP middleware (`LogHTTPRequest`, `LogHTTPResponse`, `RequestLogger`, `TracingMiddleware`), context extractors (`BoolContextExtractor`, `StringContextExtractor`, etc.), and the UUID generator interface (`UUIDGenerator`, `SetUUIDGenerator`, `GetUUIDGenerator`, `MockUUIDGenerator`).
+- **Shorthand removed**: `T()`, `D()`, `I()`, `E()` no longer exist.
+- **Trace and Critical levels removed**: the four `slog` standard levels are the canonical set.
+- **Examples directory removed**: docstring-level examples now live as `Example*` functions in `pkg/logging/example_test.go` and surface in godoc.
+- **Configs directory removed**: YAML config support is gone; populate `Config` from your application's configuration system.
+- **Dependencies removed**: `google/wire`, `go.uber.org/mock`, OpenTelemetry packages, `google/uuid`, and others. The module now declares zero external dependencies beyond the Go standard library.
+
 ### Added
-- Slog integration with Go's standard `log/slog` library
-- New `slog_logger.go` implementing Logger interface with slog backend
-- Support for custom `slog.Handler` implementations
-- Factory functions: `NewSlogTextLogger()`, `NewSlogJSONLogger()`, `NewWithHandler()`
-- Configuration options: `WithHandler()` and `UseSlog()` in ConfigBuilder
-- Custom slog levels for TRACE (-8) and CRITICAL (12)
-- Example application demonstrating slog integration and third-party handlers
-- Documentation for using zerolog and zap handlers via slog
 
-### Changed
-- `fluentLoggerWrapper` now uses `Logger` interface instead of concrete `*standardLogger`
-- Providers updated to conditionally use slog-based logger when configured
-- README updated with slog integration examples and features
+- `WithContext(ctx, Logger) context.Context` — stash a Logger in a context.
+- `FromContext(ctx) Logger` — retrieve the stashed Logger; falls back to the registered default (or built-in fallback) when missing. Never returns nil.
+- `WithTraceFromContext(ctx, Logger) Logger` — convenience that attaches the trace ID from ctx as a `trace_id` field.
+- `Logger.With(args ...any) Logger` — slog-style field attachment.
+- `Logger.Enabled(ctx, slog.Level) bool` — for cheap guards around expensive log site work.
+- `Default() Logger` — zero-config convenience.
+- `Config.Handler` — escape hatch for callers that want a custom `slog.Handler`.
 
-### Planned
-- Syslog support
-- File rotation support
-- Performance benchmarks
-- OpenTelemetry integration
+### Migration
+
+Most call sites translate mechanically:
+
+| v1 | v2 |
+|---|---|
+| `NewSimple()` | `Default()` |
+| `NewJSONLogger(InfoLevel)` | `New(Config{Format: "json"})` |
+| `NewTextLogger(InfoLevel)` | `New(Config{Format: "text"})` |
+| `NewWithLoggerConfig(cfg)` | `New(Config{...})` |
+| `logger.WithField("k", v)` | `logger.With("k", v)` |
+| `logger.WithFields(m)` | `logger.With(slog.Any("k", v), ...)` |
+| `GetTraceID(ctx)` (string, bool) | `TraceIDFromContext(ctx)` (string) |
+| `logger.Critical("msg")` | `logger.Error("msg")` |
+| `logger.Trace("msg")` | `logger.Debug("msg")` |
+| YAML config | Populate `Config` from your config layer |
+| Wire providers | Inline a `New(Config{...})` call in your composition root |
+| HTTP middleware | Use your own; pair `WithContext`/`FromContext` with a thin handler |
 
 ## [1.0.0] - 2025-01-11
 
 ### Added
-- Initial release of go-logging
-- Core logging functionality with multiple log levels (TRACE, DEBUG, INFO, WARN, ERROR, CRITICAL)
-- Fluent interface for expressive logging
-- Request tracing support with trace IDs, request IDs, and correlation IDs
-- Structured logging with JSON and text output formats
-- HTTP middleware for automatic request tracing
-- Sensitive data redaction with built-in API key patterns
-- Builder pattern for configuration
-- Environment variable configuration support
-- Thread-safe concurrent logging
-- Comprehensive test suite with high coverage
-- Three example applications demonstrating usage patterns
-- Full API documentation
 
-### Features
+- Initial release of `go-logging`.
 
-#### Logger Interface
-- `Trace()`, `Debug()`, `Info()`, `Warn()`, `Error()`, `Critical()` methods
-- Context-aware logging with `*Context()` methods
-- `WithField()` and `WithFields()` for structured logging
-- `Fluent()` for fluent interface access
-- `IsLevelEnabled()` for conditional logging
-- `SetLevel()` and `GetLevel()` for dynamic level changes
-
-#### Fluent Interface
-- Chainable methods: `Str()`, `Int()`, `Int64()`, `Bool()`, `Err()`
-- Context support with `Ctx()`
-- Trace ID support with `TraceID()`
-- Field management with `Field()` and `Fields()`
-- Message output with `Msg()` and `Msgf()`
-
-#### Configuration
-- Builder pattern with `NewConfig()`
-- Support for log levels, output formats, and destinations
-- File and time inclusion options
-- Custom redaction patterns
-- Static field support
-- Environment variable loading
-
-#### Request Tracing
-- `NewTraceID()` for generating unique trace identifiers
-- Context utilities: `WithTraceID()`, `WithRequestID()`, `WithCorrelationID()`
-- Context retrievers: `GetTraceID()`, `GetRequestID()`, `GetCorrelationID()`
-- `NewContextWithTrace()` for quick context creation
-
-#### HTTP Support
-- `TracingMiddleware()` for automatic request tracing
-- `RequestLogger()` for request-level logging
-- HTTP header handling (X-Trace-ID, X-Request-ID, X-Correlation-ID)
-- Request and response logging utilities
-
-#### Data Protection
-- Built-in API key redaction
-- Custom regex pattern support
-- `RedactedURL()` utility function
-- Redactor chain for multiple patterns
-
-### Testing
-- Comprehensive unit tests for all components
-- Test coverage for level management, fluent interface, tracing, and HTTP utilities
-- Mock-friendly interface design
-
-### Documentation
-- Complete README with usage examples
-- API reference documentation
-- Three example applications
-- Contributing guidelines
-- MIT License
-
-[Unreleased]: https://github.com/ocrosby/go-logging/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/ocrosby/go-logging/releases/tag/v1.0.0
+[Unreleased]: https://github.com/jedi-knights/go-logging/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/jedi-knights/go-logging/releases/tag/v2.0.0
+[1.0.0]: https://github.com/jedi-knights/go-logging/releases/tag/v1.0.0

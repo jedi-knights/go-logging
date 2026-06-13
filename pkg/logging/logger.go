@@ -2,133 +2,61 @@ package logging
 
 import (
 	"context"
-	"time"
+	"log/slog"
 )
 
-// Logger defines the complete logging interface with structured logging support.
-// All implementations must be thread-safe and support concurrent usage.
+// Logger is the canonical structured logging interface.
 //
-// Example usage:
-//
-//	logger := logging.NewWithLevel(logging.InfoLevel)
-//	logger.Info("Application started")
-//	logger.WithField("user_id", 123).Info("User logged in")
+// Implementations must be safe for concurrent use.
 type Logger interface {
-	// Core logging methods
-	Log(level Level, msg string, args ...interface{})
-	LogContext(ctx context.Context, level Level, msg string, args ...interface{})
+	Debug(msg string, args ...any)
+	Info(msg string, args ...any)
+	Warn(msg string, args ...any)
+	Error(msg string, args ...any)
 
-	// Field attachment methods (immutable)
-	WithField(key string, value interface{}) Logger
-	WithFields(fields map[string]interface{}) Logger
+	DebugContext(ctx context.Context, msg string, args ...any)
+	InfoContext(ctx context.Context, msg string, args ...any)
+	WarnContext(ctx context.Context, msg string, args ...any)
+	ErrorContext(ctx context.Context, msg string, args ...any)
 
-	// Level checking
-	IsLevelEnabled(level Level) bool
+	// With returns a Logger that attaches the given key-value pairs to every record.
+	// args follows slog's varargs convention: alternating keys and values, or slog.Attr.
+	With(args ...any) Logger
 
-	// Level-specific logging methods
-	Trace(msg string, args ...interface{})
-	Debug(msg string, args ...interface{})
-	Info(msg string, args ...interface{})
-	Warn(msg string, args ...interface{})
-	Error(msg string, args ...interface{})
-	Critical(msg string, args ...interface{})
-
-	// Context-aware level-specific logging methods
-	TraceContext(ctx context.Context, msg string, args ...interface{})
-	DebugContext(ctx context.Context, msg string, args ...interface{})
-	InfoContext(ctx context.Context, msg string, args ...interface{})
-	WarnContext(ctx context.Context, msg string, args ...interface{})
-	ErrorContext(ctx context.Context, msg string, args ...interface{})
-	CriticalContext(ctx context.Context, msg string, args ...interface{})
-
-	// Fluent interface support
-	Fluent() FluentLogger
-
-	// Configuration methods
-	SetLevel(level Level)
-	GetLevel() Level
+	// Enabled reports whether the logger emits records at the given level.
+	Enabled(ctx context.Context, level slog.Level) bool
 }
 
-// ConfigurableLogger allows runtime configuration changes.
-type ConfigurableLogger interface {
-	Logger
-
-	// SetLevel dynamically changes the minimum log level.
-	SetLevel(level Level)
-
-	// GetLevel returns the current minimum log level.
-	GetLevel() Level
+// slogLogger is the standard implementation of Logger, backed by log/slog.
+type slogLogger struct {
+	inner *slog.Logger
 }
 
-// LogEntry represents a structured log entry with all its metadata.
-type LogEntry struct {
-	Timestamp time.Time
-	Level     Level
-	Message   string
-	Fields    map[string]interface{}
-	Context   context.Context
-	File      string
-	Line      int
+func (l *slogLogger) Debug(msg string, args ...any) { l.inner.Debug(msg, args...) }
+func (l *slogLogger) Info(msg string, args ...any)  { l.inner.Info(msg, args...) }
+func (l *slogLogger) Warn(msg string, args ...any)  { l.inner.Warn(msg, args...) }
+func (l *slogLogger) Error(msg string, args ...any) { l.inner.Error(msg, args...) }
+
+func (l *slogLogger) DebugContext(ctx context.Context, msg string, args ...any) {
+	l.inner.DebugContext(ctx, msg, args...)
 }
 
-// Formatter defines how log entries are converted to output format.
-type Formatter interface {
-	// Format converts a LogEntry to bytes for output.
-	Format(entry LogEntry) ([]byte, error)
+func (l *slogLogger) InfoContext(ctx context.Context, msg string, args ...any) {
+	l.inner.InfoContext(ctx, msg, args...)
 }
 
-// Output defines where formatted log entries are written.
-type Output interface {
-	// Write outputs the formatted log data.
-	Write(data []byte) error
-
-	// Close cleanly shuts down the output (optional).
-	Close() error
+func (l *slogLogger) WarnContext(ctx context.Context, msg string, args ...any) {
+	l.inner.WarnContext(ctx, msg, args...)
 }
 
-// BufferedOutputInterface extends Output with buffering capabilities.
-type BufferedOutputInterface interface {
-	Output
-
-	// Flush ensures all buffered data is written.
-	Flush() error
+func (l *slogLogger) ErrorContext(ctx context.Context, msg string, args ...any) {
+	l.inner.ErrorContext(ctx, msg, args...)
 }
 
-// AsyncOutputInterface extends Output with asynchronous writing capabilities.
-type AsyncOutputInterface interface {
-	Output
-
-	// Stop gracefully shuts down async processing.
-	Stop() error
+func (l *slogLogger) With(args ...any) Logger {
+	return &slogLogger{inner: l.inner.With(args...)}
 }
 
-// FluentLogger provides a fluent interface for building log entries
-// with chained method calls. Each method returns the FluentEntry for
-// further chaining until Msg() or Msgf() is called.
-//
-// Example:
-//
-//	logger.Fluent().Error().
-//		Err(err).
-//		Str("operation", "database_query").
-//		Int("retry_count", 3).
-//		Msg("Query failed after retries")
-type FluentLogger interface {
-	// Trace creates a new fluent entry at TRACE level.
-	Trace() *FluentEntry
-
-	// Debug creates a new fluent entry at DEBUG level.
-	Debug() *FluentEntry
-
-	// Info creates a new fluent entry at INFO level.
-	Info() *FluentEntry
-
-	// Warn creates a new fluent entry at WARN level.
-	Warn() *FluentEntry
-
-	// Error creates a new fluent entry at ERROR level.
-	Error() *FluentEntry
-
-	// Critical creates a new fluent entry at CRITICAL level.
-	Critical() *FluentEntry
+func (l *slogLogger) Enabled(ctx context.Context, level slog.Level) bool {
+	return l.inner.Enabled(ctx, level)
 }

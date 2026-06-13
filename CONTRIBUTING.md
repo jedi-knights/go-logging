@@ -135,9 +135,9 @@ Use [Conventional Commits](https://www.conventionalcommits.org/) format:
 ### Examples
 
 ```
-feat(fluent): add Float64 method to fluent interface
+feat(logging): add Enabled method to Logger interface
 
-Add support for logging float64 values in the fluent interface.
+Allow callers to guard expensive log-site work behind a level check.
 
 Closes #42
 ```
@@ -182,12 +182,15 @@ Fixes #38
 go-logging/
 ├── pkg/
 │   └── logging/          # Main package
-│       ├── logger.go     # Core interfaces
+│       ├── logger.go     # Logger interface + slogLogger
+│       ├── config.go     # Config + New constructor + ParseLevel
+│       ├── context.go    # WithContext / FromContext / WithTraceFromContext
+│       ├── trace.go      # Trace / Request / Correlation IDs + NewTraceID
+│       ├── default.go    # Package-default logger + Debug/Info/Warn/Error
+│       ├── doc.go        # Package documentation
 │       ├── *_test.go     # Tests
-│       └── ...
-├── examples/             # Example applications
-├── docs/                 # Additional documentation
-├── .github/              # GitHub workflows and templates
+│       └── example_test.go  # Godoc Example* functions
+├── .github/              # GitHub workflows
 ├── README.md             # Project documentation
 ├── CONTRIBUTING.md       # This file
 ├── CHANGELOG.md          # Version history
