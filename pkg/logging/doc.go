@@ -1,86 +1,50 @@
-// Package logging provides a configurable, production-ready logging library
-// for Go with support for structured logging, request tracing, and fluent interfaces.
+// Package logging is a small slog-backed structured logging library.
 //
-// # Features
+// The package exposes a single Logger interface, a single Config struct, and
+// a single constructor (New). Trace, request, and correlation IDs propagate
+// through context, and a logger can be stashed in a context for retrieval by
+// downstream code.
 //
-//   - Multiple log levels: TRACE, DEBUG, INFO, WARN, ERROR, CRITICAL
-//   - Multiple output formats: Text and JSON
-//   - Fluent interface for expressive logging
-//   - Request tracing with trace IDs, request IDs, and correlation IDs
-//   - Structured logging with contextual fields
-//   - HTTP middleware for automatic request tracing
-//   - Sensitive data redaction
-//   - Thread-safe concurrent logging
-//   - Environment variable configuration
+// # Quick start
 //
-// # Quick Start
+// Construct a logger with explicit configuration and inject it:
 //
-// Basic logging:
-//
-//	logger := logging.NewWithLevel(logging.InfoLevel)
-//	logger.Info("Application started")
-//	logger.Error("An error occurred: %v", err)
-//
-// Structured logging:
-//
-//	logger := logger.WithFields(map[string]interface{}{
-//		"service": "api",
-//		"version": "1.0.0",
+//	l := logging.New(logging.Config{
+//	    Level:       "info",
+//	    Format:      "json",
+//	    ServiceName: "auth-server",
+//	    Environment: "production",
 //	})
-//	logger.Info("Server starting")
+//	l.Info("server starting", "port", 8080)
 //
-// Fluent interface:
+// # Context-stored logger
 //
-//	logger.Fluent().Info().
-//		Str("service", "api").
-//		Int("port", 8080).
-//		Msg("Server started")
+// HTTP middleware typically constructs a request-scoped logger (enriched with
+// the request's trace ID) and stashes it in the request context. Handlers
+// retrieve it with FromContext:
 //
-// Request tracing:
+//	func Handle(w http.ResponseWriter, r *http.Request) {
+//	    log := logging.FromContext(r.Context())
+//	    log.Info("handling request")
+//	}
 //
-//	ctx := logging.NewContextWithTrace()
-//	logger.InfoContext(ctx, "Processing request")
+// FromContext never returns nil. When no logger has been stashed and no
+// default has been registered via SetDefaultLogger, FromContext falls back
+// to a package-internal info-level text logger writing to os.Stdout.
 //
-// # Configuration
+// # Trace IDs
 //
-// Using the builder pattern:
+// Trace, request, and correlation IDs are stored as context values and
+// retrieved with the matching FromContext helpers:
 //
-//	config := logging.NewConfig().
-//		WithLevel(logging.DebugLevel).
-//		WithJSONFormat().
-//		WithStaticField("service", "my-app").
-//		Build()
-//	logger := logging.NewStandardLogger(config)
+//	ctx = logging.WithTraceID(ctx, logging.NewTraceID())
+//	id := logging.TraceIDFromContext(ctx)  // returns "" when absent
 //
-// From environment variables:
+// # Default logger
 //
-//	logger := logging.NewFromEnvironment()
-//
-// Supported environment variables:
-//   - LOG_LEVEL: TRACE, DEBUG, INFO, WARN, ERROR, CRITICAL
-//   - LOG_FORMAT: json (text is default)
-//
-// # HTTP Middleware
-//
-// Automatic request tracing:
-//
-//	mux := http.NewServeMux()
-//	mux.HandleFunc("/api", handler)
-//	handler := logging.TracingMiddleware(logger)(mux)
-//	http.ListenAndServe(":8080", handler)
-//
-// The middleware automatically:
-//   - Generates trace IDs for requests
-//   - Extracts X-Trace-ID, X-Request-ID, X-Correlation-ID headers
-//   - Logs request start and completion
-//   - Adds trace ID to response headers
-//
-// # Design Principles
-//
-// This library follows SOLID principles:
-//   - Single Responsibility: Each component has a focused purpose
-//   - Open/Closed: Extensible through interfaces
-//   - Liskov Substitution: Logger interface is easily mockable
-//   - Interface Segregation: Clean, minimal interfaces
-//   - Dependency Injection: Configuration via builder pattern
+// The package exposes Debug, Info, Warn, and Error functions that delegate to
+// a package-default Logger. This is a seam for tests and one-off scripts;
+// production code should construct a Logger explicitly and inject it through
+// the Logger interface rather than depend on the global. Install a default
+// with SetDefaultLogger, or pass nil to detach the current default.
 package logging

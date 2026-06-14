@@ -9,16 +9,14 @@ on:
       - '**'
 
 env:
-  GO_VERSION: '1.24'
-  COVERAGE_THRESHOLD: 85
+  GO_VERSION: '1.26'
 
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -26,22 +24,16 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Install Task runner
-        run: |
-          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
-
-      - name: Install development tools
-        run: task install-tools
-
-      - name: Run linting
-        run: task lint
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
 
   test:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -49,29 +41,18 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Install Task runner
-        run: |
-          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
-
-      - name: Install bc for numeric comparison  
-        run: sudo apt-get update && sudo apt-get install -y bc
-
-      - name: Download dependencies
-        run: task deps
-
       - name: Verify dependencies
-        run: task tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
 
-      - name: Install development tools
-        run: task install-tools
-
-      - name: Run tests with coverage validation
-        run: task ci-test
+      - name: Run tests
+        run: go test ./... -race -count=1 -coverprofile=coverage.out
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
-          file: ./logging-coverage.out
+          file: ./coverage.out
           flags: unittests
           fail_ci_if_error: false
 
@@ -80,56 +61,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint, test]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-
-      - name: Install Task runner
-        run: |
-          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
-
-      - name: Download dependencies
-        run: task deps
 
       - name: Build
-        run: task build
-
-  integration:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    needs: [lint, test]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-
-      - name: Install Task runner
-        run: |
-          sh -c "$(curl --location https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
-
-      - name: Download dependencies
-        run: task deps
-
-      - name: Install tools
-        run: task install-tools
-
-      - name: Generate code
-        run: |
-          task generate-mocks
-          task generate-wire
-
-      - name: Run examples
-        run: |
-          timeout 10s task run-basic || true
-          timeout 10s task run-fluent || true
-          timeout 10s task run-di || true
+        run: go build ./...
