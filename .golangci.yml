@@ -52,6 +52,7 @@ linters:
           - gosec
           - cyclop
           - gocyclo
+          - goconst
 
 formatters:
   enable:

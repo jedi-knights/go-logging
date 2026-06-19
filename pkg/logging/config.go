@@ -41,23 +41,41 @@ type Config struct {
 // New constructs a Logger from cfg.
 func New(cfg Config) Logger {
 	level, levelKnown := ParseLevel(cfg.Level)
-
-	handler := cfg.Handler
-	if handler == nil {
-		out := cfg.Output
-		if out == nil {
-			out = os.Stdout
-		}
-		opts := &slog.HandlerOptions{Level: level}
-		if strings.EqualFold(cfg.Format, "json") {
-			handler = slog.NewJSONHandler(out, opts)
-		} else {
-			handler = slog.NewTextHandler(out, opts)
-		}
+	inner := slog.New(buildHandler(cfg, level))
+	if attrs := gatherAttrs(cfg); len(attrs) > 0 {
+		inner = inner.With(attrs...)
 	}
+	l := &slogLogger{inner: inner}
+	if !levelKnown && cfg.Level != "" {
+		l.Warn("unknown log level, defaulting to info", "level", cfg.Level)
+	}
+	return l
+}
 
-	inner := slog.New(handler)
+// Default is a convenience equivalent to New(Config{}).
+func Default() Logger { return New(Config{}) }
 
+// buildHandler resolves the slog.Handler to use, honoring an explicit
+// Config.Handler override and otherwise constructing the standard text or
+// JSON handler.
+func buildHandler(cfg Config, level slog.Level) slog.Handler {
+	if cfg.Handler != nil {
+		return cfg.Handler
+	}
+	out := cfg.Output
+	if out == nil {
+		out = os.Stdout
+	}
+	opts := &slog.HandlerOptions{Level: level}
+	if strings.EqualFold(cfg.Format, "json") {
+		return slog.NewJSONHandler(out, opts)
+	}
+	return slog.NewTextHandler(out, opts)
+}
+
+// gatherAttrs collects the always-on attributes that come from the Config:
+// service name, environment, and static fields.
+func gatherAttrs(cfg Config) []any {
 	var attrs []any
 	if cfg.ServiceName != "" {
 		attrs = append(attrs, slog.String("service_name", cfg.ServiceName))
@@ -68,21 +86,8 @@ func New(cfg Config) Logger {
 	for k, v := range cfg.StaticFields {
 		attrs = append(attrs, slog.Any(k, v))
 	}
-	if len(attrs) > 0 {
-		inner = inner.With(attrs...)
-	}
-
-	l := &slogLogger{inner: inner}
-
-	if !levelKnown && cfg.Level != "" {
-		l.Warn("unknown log level, defaulting to info", "level", cfg.Level)
-	}
-
-	return l
+	return attrs
 }
-
-// Default is a convenience equivalent to New(Config{}).
-func Default() Logger { return New(Config{}) }
 
 // ParseLevel converts a level string to slog.Level. Comparison is case-insensitive.
 // Returns (level, true) for known values ("debug", "info", "warn", "warning", "error", "").
